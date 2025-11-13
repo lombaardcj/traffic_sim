@@ -125,22 +125,65 @@ class Segment:
 
     # === DRAW CARS ===
     def draw_cars(self, surface):
+        if self.length <= 0:
+            return
+
+        # === SCALE: pixels per meter ===
+        seg_pixels = math.hypot(self.end[0] - self.start[0], self.end[1] - self.start[1])
+        ppm = seg_pixels / self.length  # pixels per meter
+
+        # Car dimensions (to scale)
+        car_pixel_length = CAR_LENGTH * ppm
+        car_pixel_width = 2.0 * ppm  # ~2m wide
+        if car_pixel_length < 4:
+            car_pixel_length = 4  # min visibility
+
         color_map = {
             "green": (0, 255, 0),
             "yellow": (255, 255, 0),
             "red": (255, 0, 0),
         }
+
         for car in self.cars:
             t = car.pos / self.length
             x = self.start[0] + t * (self.end[0] - self.start[0])
             y = self.start[1] + t * (self.end[1] - self.start[1])
 
-            # PURPLE if colliding, else risk color
-            color = (180, 0, 255) if car.colliding else color_map[car.risk]
+            # Direction vector
+            dx = self.end[0] - self.start[0]
+            dy = self.end[1] - self.start[1]
+            angle = math.atan2(dy, dx)
 
-            pygame.draw.circle(surface, color, (int(x), int(y)), 10)  # slightly larger
-            if car.v > 2:
-                pygame.draw.circle(surface, (255, 255, 255), (int(x), int(y)), 3)
+            # Car rectangle (centered)
+            half_len = car_pixel_length / 2
+            half_w = car_pixel_width / 2
+
+            corners = [
+                (-half_len, -half_w),
+                ( half_len, -half_w),
+                ( half_len,  half_w),
+                (-half_len,  half_w),
+            ]
+
+            # Rotate and translate
+            cos_a, sin_a = math.cos(angle), math.sin(angle)
+            rotated = []
+            for px, py in corners:
+                rx = px * cos_a - py * sin_a + x
+                ry = px * sin_a + py * cos_a + y
+                rotated.append((int(rx), int(ry)))
+
+            # Color: PURPLE if colliding
+            color = (180, 0, 255) if getattr(car, 'colliding', False) else color_map[car.risk]
+
+            pygame.draw.polygon(surface, color, rotated)
+            # pygame.draw.polygon(surface, (0, 0, 0), rotated, 2)  # border
+
+            # Speed indicator (front)
+            # if car.v > 2:
+            #     front_x = x + half_len * cos_a
+            #     front_y = y + half_len * sin_a
+            #     pygame.draw.circle(surface, (255, 255, 255), (int(front_x), int(front_y)), 3)
 
 # === CAR CLASS ===
 class Car:
@@ -165,6 +208,47 @@ class Junction:
         self.outputs = outputs if isinstance(outputs, list) else [outputs]
         self.mode = mode
         self.counter = 0  # for round-robin
+
+    # === DRAW JUNCTIONS
+    def draw_junction(self, surface, road_width=ROAD_WIDTH):
+        """
+        Draw the junction as:
+        - Square border (on top of road)
+        - Circle with cross (X) in center
+        - Below cars, above roads
+        """
+        # Get junction position: average of input segment ends
+        end_points = []
+        for inp in (self.inputs if isinstance(self.inputs, list) else [self.inputs]):
+            end_points.append((inp.end[0], inp.end[1]))
+
+        if not end_points:
+            return
+
+        # Center of selfunction
+        cx = sum(p[0] for p in end_points) // len(end_points)
+        cy = sum(p[1] for p in end_points) // len(end_points)
+
+        size = road_width * 1.3  # slightly larger than road
+        half = size // 2
+
+        # 1. Square border (white, thick)
+        rect = pygame.Rect(cx - half, cy - half, size, size)
+        pygame.draw.rect(surface, (255, 255, 255), rect, 4)
+
+        # 2. Circle (gray)
+        radius = int(size * 0.4)
+        pygame.draw.circle(surface, (100, 100, 100), (cx, cy), radius)
+
+        # 3. Cross (X) inside circle
+        line_len = radius * 0.8
+        pygame.draw.line(surface, (200, 200, 200),
+                        (cx - line_len, cy - line_len),
+                        (cx + line_len, cy + line_len), 3)
+        pygame.draw.line(surface, (200, 200, 200),
+                        (cx + line_len, cy - line_len),
+                        (cx - line_len, cy + line_len), 3)
+
 
 # === CREATE SEGMENTS USING POINTS ===
 segments = {
@@ -390,6 +474,10 @@ while True:
     # Draw all roads
     for seg in segments.values():
         seg.draw_road(screen)
+
+    # Draw all junctions
+    for junc in junctions:
+        junc.draw_junction(screen)
 
     # Draw all cars
     for seg in segments.values():
