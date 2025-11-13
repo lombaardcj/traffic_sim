@@ -125,15 +125,22 @@ class Segment:
 
     # === DRAW CARS ===
     def draw_cars(self, surface):
-        color_map = {"green": (0,255,0), "yellow": (255,255,0), "red": (255,0,0)}
+        color_map = {
+            "green": (0, 255, 0),
+            "yellow": (255, 255, 0),
+            "red": (255, 0, 0),
+        }
         for car in self.cars:
             t = car.pos / self.length
             x = self.start[0] + t * (self.end[0] - self.start[0])
             y = self.start[1] + t * (self.end[1] - self.start[1])
-            color = color_map[car.risk]
-            pygame.draw.circle(surface, color, (int(x), int(y)), 9)
+
+            # PURPLE if colliding, else risk color
+            color = (180, 0, 255) if car.colliding else color_map[car.risk]
+
+            pygame.draw.circle(surface, color, (int(x), int(y)), 10)  # slightly larger
             if car.v > 2:
-                pygame.draw.circle(surface, (255,255,255), (int(x), int(y)), 3)
+                pygame.draw.circle(surface, (255, 255, 255), (int(x), int(y)), 3)
 
 # === CAR CLASS ===
 class Car:
@@ -148,6 +155,7 @@ class Car:
         self.T = T
         self.s0 = S0
         self.risk = "green"
+        self.colliding = False
 
 # === JUNCTION ===
 class Junction:
@@ -286,7 +294,8 @@ def get_leader(seg, car_idx):
 def update_cars(seg):
     if not seg.cars:
         return
-    seg.cars.sort(key=lambda c: c.pos, reverse=True)
+    seg.cars.sort(key=lambda c: c.pos, reverse=True)  # front to back
+
     for i, car in enumerate(seg.cars):
         v_free = min(car.v0, seg.speed_limit)
         s, dv = get_leader(seg, i)
@@ -294,7 +303,17 @@ def update_cars(seg):
         car.v = max(0, car.v + a * STEP)
         car.pos += car.v * STEP
 
-        # Risk
+        # === COLLISION DETECTION ===
+        car.colliding = False  # reset
+        if i > 0:
+            leader = seg.cars[i-1]
+            # Actual front-to-back gap
+            actual_gap = leader.pos - car.pos - leader.length
+            if actual_gap < 0:  # overlap!
+                car.colliding = True
+                leader.colliding = True  # both cars purple
+
+        # === RISK COLORING (unchanged) ===
         if s == float('inf'):
             car.risk = "green"
         else:
