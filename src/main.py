@@ -7,16 +7,78 @@ screen = pygame.display.set_mode((W, H))
 clock = pygame.time.Clock()
 font = pygame.font.SysFont(None, 28)
 
-# === IDM PARAMETERS ===
+# === IDM PARAMETERS (Intelligent Driver Model) ===
+# All values based on real-world traffic studies (NGSIM, HighD, Treiber et al.)
+# Units: meters (m), seconds (s), meters per second (m/s), m/s²
+
 A_MAX = 2.0
+# Maximum comfortable acceleration
+# Unit: m/s²
+# Meaning: How quickly a driver can speed up when unobstructed
+# Typical: 1.0–3.0 m/s² (human drivers), 3.0–5.0 for aggressive or AVs
+# Effect: ↑ = faster starts, smoother flow | ↓ = sluggish response
+
 B_MAX = 3.0
-V0 = 13.9
+# Maximum comfortable deceleration (braking)
+# Unit: m/s²
+# Meaning: How hard a driver brakes in normal conditions (not emergency)
+# Typical: 2.0–4.0 m/s² (humans), up to 8.0 in panic
+# Effect: ↑ = stronger reaction to gaps → more shockwaves | ↓ = gentler, less jam-prone
+
+# V0 = 13.9
+V0 = 33.3
+# Desired free-flow speed (cruise speed when no leader)
+# Unit: m/s
+# 13.9 m/s = 50 km/h ≈ 31 mph
+# Typical: 13.9–33.3 m/s (50–120 km/h) depending on road type
+# Effect: ↑ = higher capacity | Must match speed_limit or be capped
+
 T = 1.5
+# Safe time headway
+# Unit: seconds
+# Meaning: Minimum time gap to the car in front at current speed
+# Example: at 10 m/s, wants 15 m gap
+# Typical: 1.0–1.8 s (1.5 is standard for highways)
+# Effect: ↑ = lower density, fewer jams | ↓ = denser flow, more red cars
+
 S0 = 2.0
+# Minimum jam distance (standstill gap)
+# Unit: meters
+# Meaning: Extra buffer when stopped (beyond car length)
+# Includes: reaction slack, bumper margin
+# Typical: 1.5–3.0 m
+# Effect: ↑ = lower jam density (~120 veh/km) | ↓ = denser jams (~200 veh/km)
+
 CAR_LENGTH = 4.5
+# Physical length of a car
+# Unit: meters
+# Standard passenger car: 4.5–5.0 m
+# Used in gap calculation: s = leader.pos - follower.pos - CAR_LENGTH
+# Do not include in S0 — S0 is *extra* gap
+
 MARGIN = 4.0
+# Risk visualization buffer
+# Unit: meters
+# Meaning: How much beyond s* triggers YELLOW (not part of IDM physics)
+# Purely for coloring: green → yellow → red
+# Typical: 2.0–6.0 m
+# Effect: ↑ = fewer yellows | ↓ = more sensitive warning
+
 STEP = 0.05
+# Simulation timestep
+# Unit: seconds
+# Meaning: How often physics is updated
+# 0.05 s = 20 Hz update rate
+# Must be small for stability (especially with high A_MAX)
+# Typical: 0.01–0.1 s
+# Warning: Too large → oscillation or crash | Too small → slow sim
+
 ROAD_WIDTH = 40
+# Visual road thickness in pixels
+# Unit: pixels
+# Purely cosmetic — for pygame.draw.line()
+# Adjust to match screen scale (40px ≈ 3.5–4.0 m lane width visually)
+# No effect on physics
 
 # === HELPER POINTS (easy to edit) ===
 POINTS = {
@@ -132,7 +194,7 @@ junctions = [
 
 # Junction logic
 def transfer_at_junction(junction):
-    """Move cars from all inputs to outputs when they reach end."""
+    """Move cars from inputs to outputs — only if safe at start of output."""
     for input_seg in junction.inputs:
         exiting = [c for c in input_seg.cars if c.pos >= input_seg.length]
         for car in exiting:
@@ -142,19 +204,21 @@ def transfer_at_junction(junction):
             if junction.mode == "round_robin":
                 output = junction.outputs[junction.counter % len(junction.outputs)]
                 junction.counter += 1
-            elif junction.mode == "priority":
-                output = junction.outputs[0]
-            elif junction.mode == "fixed":
+            elif junction.mode in ["priority", "fixed"]:
                 output = junction.outputs[0]
             else:
                 output = random.choice(junction.outputs)
 
-            # === Insert safely ===
+            # === Insert safely at pos=0 ===
             entry = 0
             if output.cars:
-                rear = min(output.cars, key=lambda c: c.pos)
-                entry = max(0, rear.pos - car.length - car.s0)
-
+                first_car = min(output.cars, key=lambda c: c.pos)
+                min_gap = car.length + first_car.length + car.s0
+                if first_car.pos < min_gap:
+                    # Not safe — push back and wait
+                    input_seg.add_car(car, input_seg.length - 0.1)
+                    continue
+            # Safe — enter at 0
             output.add_car(car, entry)
             car.v = min(car.v, output.speed_limit)
 
