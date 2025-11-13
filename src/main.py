@@ -88,10 +88,11 @@ class Car:
 
 # === JUNCTION ===
 class Junction:
-    def __init__(self, input_seg, output_segs, mode="round_robin"):
-        self.inputs = input_seg
-        self.outputs = output_segs
-        self.mode = mode #round_robin
+    def __init__(self, id, inputs, outputs, mode="round_robin"):
+        self.id = id
+        self.inputs = inputs if isinstance(inputs, list) else [inputs]  # 1 or N
+        self.outputs = outputs if isinstance(outputs, list) else [outputs]
+        self.mode = mode
         self.counter = 0  # for round-robin
 
 # === CREATE SEGMENTS USING POINTS ===
@@ -103,66 +104,59 @@ segments = {
     'westnorth' :   Segment('westnorth',   POINTS['west_end'],  POINTS['north_start']),
 }
 
-# Example: Heart shape
-split_junction = Junction(
-    input_seg=segments['northsouth'],
-    output_segs=[segments['west'], segments['east']],
-    mode="round_robin"
-)
+# === JUNCTIONS LIST ===
+junctions = [
+    # Split: northsouth → west & east
+    Junction('split', 
+             inputs=segments['northsouth'], 
+             outputs=[segments['west'], segments['east']], 
+             mode="round_robin"),
 
-merge_junction = Junction(
-    input_seg=None,  # not used
-    output_segs=[segments['middle']],
-    mode="priority"
-)
+    # Merge: west + east → eastnorth + westLectnorth
+    Junction('westaround', 
+             inputs=[segments['west']], 
+             outputs=[segments['westnorth']], 
+             mode="priority"),
 
-# For merging: call transfer on each input
-west_to_middle = Junction(segments['west'], [segments['middle']])
-east_to_middle = Junction(segments['east'], [segments['middle']])
+    Junction('eastaround', 
+             inputs=[segments['east']], 
+             outputs=[segments['eastnorth']], 
+             mode="priority"),
 
-# === JUNCTIONS ===
-# Split: north → west & east
-segments['northsouth'].outputs = [segments['west'], segments['east']]
-split_counter = 0
-
-# Merge: west & east → middle
-# (Handled in transfer)
-
-# Loop: middle → north
-segments['east'].outputs = [segments['eastnorth']]
-segments['eastnorth'].outputs = [segments['northsouth']]
-
-segments['west'].outputs = [segments['westnorth']]
-segments['westnorth'].outputs = [segments['northsouth']]
+    # Loop back: eastnorth + westnorth → northsouth
+    Junction('merge', 
+             inputs=[segments['eastnorth'], segments['westnorth']], 
+             outputs=segments['northsouth'], 
+             mode="priority"),
+]
 
 # Junction logic
 def transfer_at_junction(junction):
-    """Move cars from input to outputs when they reach end."""
-    input_seg = junction.input
-    exiting = [c for c in input_seg.cars if c.pos >= input_seg.length]
+    """Move cars from all inputs to outputs when they reach end."""
+    for input_seg in junction.inputs:
+        exiting = [c for c in input_seg.cars if c.pos >= input_seg.length]
+        for car in exiting:
+            input_seg.remove_car(car)
 
-    for car in exiting:
-        input_seg.remove_car(car)
+            # === Choose output ===
+            if junction.mode == "round_robin":
+                output = junction.outputs[junction.counter % len(junction.outputs)]
+                junction.counter += 1
+            elif junction.mode == "priority":
+                output = junction.outputs[0]
+            elif junction.mode == "fixed":
+                output = junction.outputs[0]
+            else:
+                output = random.choice(junction.outputs)
 
-        # === Choose output ===
-        if junction.mode == "round_robin":
-            output = junction.outputs[junction.counter % len(junction.outputs)]
-            junction.counter += 1
-        elif junction.mode == "priority":
-            output = junction.outputs[0]  # first has priority
-        elif junction.mode == "random":
-            output = random.choice(junction.outputs)
-        else:
-            output = junction.outputs[0]
+            # === Insert safely ===
+            entry = 0
+            if output.cars:
+                rear = min(output.cars, key=lambda c: c.pos)
+                entry = max(0, rear.pos - car.length - car.s0)
 
-        # === Insert safely ===
-        entry = 0
-        if output.cars:
-            rear = min(output.cars, key=lambda c: c.pos)
-            entry = max(0, rear.pos - car.length - car.s0)
-
-        output.add_car(car, entry)
-        car.v = min(car.v, output.speed_limit)
+            output.add_car(car, entry)
+            car.v = min(car.v, output.speed_limit)
 
 # === IDM ===
 def idm_acceleration(car, s, dv, v_free):
@@ -257,8 +251,11 @@ while True:
     while accumulator >= STEP:
         for seg in segments.values():
             update_cars(seg)
-        for seg in segments.values():
-            transfer(seg)
+
+        # === TRANSFER VIA JUNCTIONS ===
+        for j in junctions:
+            transfer_at_junction(j)
+        
         accumulator -= STEP
 
     # === RENDER ===
