@@ -11,14 +11,15 @@ font = pygame.font.SysFont(None, 28)
 # All values based on real-world traffic studies (NGSIM, HighD, Treiber et al.)
 # Units: meters (m), seconds (s), meters per second (m/s), m/s²
 
-A_MAX = 2.0
+# A_MAX = 2.0
+A_MAX = 3.0
 # Maximum comfortable acceleration
 # Unit: m/s²
 # Meaning: How quickly a driver can speed up when unobstructed
 # Typical: 1.0–3.0 m/s² (human drivers), 3.0–5.0 for aggressive or AVs
 # Effect: ↑ = faster starts, smoother flow | ↓ = sluggish response
 
-B_MAX = 3.0
+B_MAX = 4.0
 # Maximum comfortable deceleration (braking)
 # Unit: m/s²
 # Meaning: How hard a driver brakes in normal conditions (not emergency)
@@ -33,7 +34,7 @@ V0 = 33.3
 # Typical: 13.9–33.3 m/s (50–120 km/h) depending on road type
 # Effect: ↑ = higher capacity | Must match speed_limit or be capped
 
-T = 1.5
+T = 1.8
 # Safe time headway
 # Unit: seconds
 # Meaning: Minimum time gap to the car in front at current speed
@@ -41,7 +42,7 @@ T = 1.5
 # Typical: 1.0–1.8 s (1.5 is standard for highways)
 # Effect: ↑ = lower density, fewer jams | ↓ = denser flow, more red cars
 
-S0 = 2.0
+S0 = 3.0
 # Minimum jam distance (standstill gap)
 # Unit: meters
 # Meaning: Extra buffer when stopped (beyond car length)
@@ -233,12 +234,54 @@ def idm_acceleration(car, s, dv, v_free):
     return max(-car.b_max, min(car.a_max, a))
 
 def get_leader(seg, car_idx):
+    """
+    Return (s, dv) to the *closest* downstream leader.
+    - Same segment: immediate
+    - Downstream: check ALL output paths → pick nearest car
+    """
+    car = seg.cars[car_idx]
+
+    # 1. Local leader
     if car_idx > 0:
         leader = seg.cars[car_idx - 1]
-        s = leader.pos - seg.cars[car_idx].pos - leader.length
-        dv = seg.cars[car_idx].v - leader.v
+        s = leader.pos - car.pos - leader.length
+        dv = car.v - leader.v
         return s, dv
-    return float('inf'), 0
+
+    # 2. Look ahead through junctions
+    best_s = float('inf')
+    best_dv = 0
+
+    visited = set()
+    queue = [(seg, seg.length)]  # (current_seg, dist_from_ego)
+
+    while queue:
+        current_seg, dist_offset = queue.pop(0)
+        if current_seg.id in visited:
+            continue
+        visited.add(current_seg.id)
+
+        # Check cars in this segment
+        if current_seg.cars:
+            rear_car = min(current_seg.cars, key=lambda c: c.pos)
+            s = dist_offset + rear_car.pos - car.pos - rear_car.length
+            dv = car.v - rear_car.v
+            if s < best_s:
+                best_s = s
+                best_dv = dv
+
+        # Enqueue outputs
+        outputs = []
+        if hasattr(current_seg, 'outputs') and current_seg.outputs:
+            outputs = current_seg.outputs
+        elif hasattr(current_seg, 'next_segment') and current_seg.next_segment:
+            outputs = [current_seg.next_segment]
+
+        for out_seg in outputs:
+            if out_seg.id not in visited:
+                queue.append((out_seg, dist_offset + out_seg.length))
+
+    return (best_s, best_dv) if best_s != float('inf') else (float('inf'), 0)
 
 def update_cars(seg):
     if not seg.cars:
