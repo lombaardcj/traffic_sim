@@ -132,11 +132,11 @@ class Segment:
         seg_pixels = math.hypot(self.end[0] - self.start[0], self.end[1] - self.start[1])
         ppm = seg_pixels / self.length  # pixels per meter
 
-        # Car dimensions (to scale)
-        car_pixel_length = CAR_LENGTH * ppm
-        car_pixel_width = 2.0 * ppm  # ~2m wide
-        if car_pixel_length < 4:
-            car_pixel_length = 4  # min visibility
+        # Car dimensions
+        car_pixel_length = max(4, CAR_LENGTH * ppm)
+        car_pixel_width = 2.0 * ppm
+        half_len = car_pixel_length / 2
+        half_w = car_pixel_width / 2
 
         color_map = {
             "green": (0, 255, 0),
@@ -149,41 +149,67 @@ class Segment:
             x = self.start[0] + t * (self.end[0] - self.start[0])
             y = self.start[1] + t * (self.end[1] - self.start[1])
 
-            # Direction vector
+            # Direction
             dx = self.end[0] - self.start[0]
             dy = self.end[1] - self.start[1]
             angle = math.atan2(dy, dx)
+            cos_a, sin_a = math.cos(angle), math.sin(angle)
 
-            # Car rectangle (centered)
-            half_len = car_pixel_length / 2
-            half_w = car_pixel_width / 2
-
+            # === CAR BODY ===
             corners = [
                 (-half_len, -half_w),
                 ( half_len, -half_w),
                 ( half_len,  half_w),
                 (-half_len,  half_w),
             ]
-
-            # Rotate and translate
-            cos_a, sin_a = math.cos(angle), math.sin(angle)
             rotated = []
             for px, py in corners:
                 rx = px * cos_a - py * sin_a + x
                 ry = px * sin_a + py * cos_a + y
                 rotated.append((int(rx), int(ry)))
 
-            # Color: PURPLE if colliding
             color = (180, 0, 255) if getattr(car, 'colliding', False) else color_map[car.risk]
-
             pygame.draw.polygon(surface, color, rotated)
-            # pygame.draw.polygon(surface, (0, 0, 0), rotated, 2)  # border
+            # Optional: border
+            # pygame.draw.polygon(surface, (0, 0, 0), rotated, 2)
 
-            # Speed indicator (front)
-            # if car.v > 2:
-            #     front_x = x + half_len * cos_a
-            #     front_y = y + half_len * sin_a
-            #     pygame.draw.circle(surface, (255, 255, 255), (int(front_x), int(front_y)), 3)
+            # === INSIDE draw_cars(), replace the headlight block ===
+            if car.v > 2.0:
+                # Headlight origin (front center)
+                front_x = x + half_len * cos_a
+                front_y = y + half_len * sin_a
+
+                # Beam parameters
+                beam_length_m = 6.0 + car.v * 0.6  # 6–15m
+                beam_angle = 0.4  # radians (~23°)
+                steps = 8  # fade steps
+
+                beam_pixels = beam_length_m * ppm
+
+                for i in range(steps):
+                    # Fade: 200 → 50 alpha
+                    alpha = int(200 * (1 - i / steps))
+                    color = (255, 240, 180, alpha)
+
+                    # Cone width at this step
+                    dist = (i + 1) / steps * beam_pixels
+                    width = 2 * dist * math.tan(beam_angle)
+
+                    # Create triangle points
+                    p1 = (front_x, front_y)  # origin
+                    p2 = (
+                        front_x + dist * cos_a - width * sin_a,
+                        front_y + dist * sin_a + width * cos_a
+                    )
+                    p3 = (
+                        front_x + dist * cos_a + width * sin_a,
+                        front_y + dist * sin_a - width * cos_a
+                    )
+
+                    # Draw translucent triangle
+                    tri_surf = pygame.Surface((W, H), pygame.SRCALPHA)
+                    pygame.draw.polygon(tri_surf, color, [p1, p2, p3])
+                    surface.blit(tri_surf, (0, 0))
 
 # === CAR CLASS ===
 class Car:
@@ -409,6 +435,8 @@ def update_cars(seg):
             else:
                 car.risk = "green"
 
+            
+
 def transfer(seg):
     global split_counter
     exiting = [c for c in seg.cars if c.pos >= seg.length]
@@ -451,12 +479,12 @@ while True:
                 car = Car()
                 north.add_car(car, 0)
 
-    if spawn_timer > 1/spawn_rate:
-        north = segments['northsouth']
-        if not north.cars or north.cars[-1].pos > 30:
-            car = Car()
-            north.add_car(car, 0)
-        spawn_timer = 0
+    # if spawn_timer > 1/spawn_rate:
+    #     north = segments['northsouth']
+    #     if not north.cars or north.cars[-1].pos > 30:
+    #         car = Car()
+    #         north.add_car(car, 0)
+    #     spawn_timer = 0
 
     while accumulator >= STEP:
         for seg in segments.values():

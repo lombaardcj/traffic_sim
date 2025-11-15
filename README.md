@@ -1,3 +1,54 @@
+# Traffic Microsimulation (IDM + Pygame)
+
+**A realistic, physics-based traffic simulator**  
+Built in **~300 lines of clean Python** using **Pygame** and the **Intelligent Driver Model (IDM)**.
+
+---
+
+## Overview
+
+This is a **microscopic traffic flow simulator** with:
+
+- **Real IDM car-following** (acceleration, braking, anticipation)
+- **Junctions**: splitters, mergers, loops
+- **Collision detection** → **purple cars**
+- **Scaled, oriented car rendering** (real 4.5m length)
+- **Realistic headlights** (cone beams, speed-dependent)
+- **Visual risk indicators**:
+  - **Green** → safe
+  - **Yellow** → close
+  - **Red** → inside `s*`
+  - **Purple** → **collision**
+
+---
+
+## Key Features
+
+| Feature | Implementation |
+|-------|----------------|
+| **IDM Physics** | Full `s*`, `a_max`, `b_max`, `v0`, `T`, `s0` |
+| **Junctions** | `Junction` class with `inputs`/`outputs`, round-robin & priority |
+| **Safe Transfer** | Cars enter at `pos=0` **only if gap ≥ s0 + length** |
+| **Lookahead** | `get_leader()` sees **all downstream cars** across junctions |
+| **Collision** | `actual_gap < 0` → both cars turn **purple** |
+| **Scaled Cars** | `CAR_LENGTH = 4.5m` → real size on screen |
+| **Headlights** | Cone beams, fade with distance, only when moving |
+| **Junction Markers** | Square + circle + X, drawn **below cars** |
+
+---
+
+## IDM Parameters (Tuned for Realism)
+
+```python
+A_MAX = 3.0     # m/s²  – aggressive acceleration
+B_MAX = 4.0     # m/s²  – strong but safe braking
+V0    = 33.3    # m/s   – 120 km/h free-flow
+T     = 1.8     # s     – safe time headway
+S0    = 3.0     # m     – jam buffer
+```
+
+## Build and run Steps
+
 # traffic_sim
 Experimental traffic simulator
 
