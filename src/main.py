@@ -1,11 +1,134 @@
-import pygame, random, sys, math
+import pygame, random, sys, math, json, os
 pygame.init()
+
+# === CONFIG LOADING ===
+CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.json')
+
+def load_config():
+    """Load configuration from config.json."""
+    if not os.path.exists(CONFIG_PATH):
+        print(f"Config file not found at {CONFIG_PATH}")
+        return None
+    with open(CONFIG_PATH, 'r') as f:
+        return json.load(f)
+
+def save_config(config):
+    """Save configuration to config.json."""
+    with open(CONFIG_PATH, 'w') as f:
+        json.dump(config, f, indent=2)
+
+def update_config_current_state(config):
+    """Update current_state with zoom/pan and segment config."""
+    global ZOOM, PAN_X, PAN_Y, segments, junctions, POINTS
+    
+    config['current_state']['view']['zoom'] = ZOOM
+    config['current_state']['view']['pan_x'] = PAN_X
+    config['current_state']['view']['pan_y'] = PAN_Y
+    
+    # Update segments
+    for seg_data in config['current_state']['segments']:
+        if seg_data['id'] in segments:
+            seg = segments[seg_data['id']]
+            seg_data['start'] = list(seg.start)
+            seg_data['end'] = list(seg.end)
+            seg_data['speed_limit'] = seg.speed_limit
+    
+    # Update junctions
+    for j_idx, j_data in enumerate(config['current_state']['junctions']):
+        if j_idx < len(junctions):
+            j = junctions[j_idx]
+            j_data['mode'] = j.mode
+
+def reset_to_default_state(config):
+    """Reset current state to default state."""
+    global ZOOM, PAN_X, PAN_Y, segments, junctions, POINTS
+    
+    default = config['default_state']
+    
+    # Reset view
+    ZOOM = default['view']['zoom']
+    PAN_X = default['view']['pan_x']
+    PAN_Y = default['view']['pan_y']
+    
+    # Reset POINTS
+    for key, val in default['points'].items():
+        POINTS[key] = tuple(val)
+    
+    # Clear and reset segments
+    for seg in segments.values():
+        seg.cars = []
+    
+    # Reset segment positions
+    for seg_data in default['segments']:
+        if seg_data['id'] in segments:
+            seg = segments[seg_data['id']]
+            seg.start = tuple(seg_data['start'])
+            seg.end = tuple(seg_data['end'])
+            seg.speed_limit = seg_data['speed_limit']
+            # Recalculate length and direction
+            dx = seg.end[0] - seg.start[0]
+            dy = seg.end[1] - seg.start[1]
+            seg.length = math.hypot(dx, dy)
+            seg.dir = (dx / seg.length, dy / seg.length) if seg.length > 0 else (0, 0)
+    
+    # Reset junctions
+    for j in junctions:
+        j.counter = 0
+
+# Load config on startup
+config = load_config()
+if config is None:
+    print("Failed to load config. Please ensure config.json exists.")
+    sys.exit(1)
 
 # === SCREEN ===
 W, H = 700, 700
 screen = pygame.display.set_mode((W, H))
 clock = pygame.time.Clock()
 font = pygame.font.SysFont(None, 28)
+
+# === VIEW / ZOOM / PAN ===
+ZOOM = 1.0           # global zoom (1.0 = 100%)
+MIN_ZOOM = 0.2
+MAX_ZOOM = 5.0
+PAN_X, PAN_Y = 0.0, 0.0   # translation in screen pixels
+is_panning = False
+pan_last = (0, 0)
+
+def world_to_screen(pt):
+    """Convert world coordinates (same units as your POINTS) to screen coords."""
+    x, y = pt
+    sx = x * ZOOM + PAN_X
+    sy = y * ZOOM + PAN_Y
+    return (int(sx), int(sy))
+
+def screen_to_world(pt):
+    """Convert screen coords to world coordinates (useful for zoom centering)."""
+    sx, sy = pt
+    wx = (sx - PAN_X) / ZOOM
+    wy = (sy - PAN_Y) / ZOOM
+    return (wx, wy)
+
+def zoom_at(point_screen, factor):
+    """Zoom in/out keeping the world point under `point_screen` stable."""
+    global ZOOM, PAN_X, PAN_Y
+    # clamp target zoom
+    new_zoom = max(MIN_ZOOM, min(MAX_ZOOM, ZOOM * factor))
+    if new_zoom == ZOOM:
+        return
+    # world point under the cursor before zoom
+    world = screen_to_world(point_screen)
+    # update zoom
+    ZOOM = new_zoom
+    # compute new pan so that the same world point maps to same screen point
+    PAN_X = point_screen[0] - world[0] * ZOOM
+    PAN_Y = point_screen[1] - world[1] * ZOOM
+
+# === LOAD INITIAL VIEW STATE FROM CONFIG ===
+if config:
+    ZOOM = config['current_state']['view']['zoom']
+    PAN_X = config['current_state']['view']['pan_x']
+    PAN_Y = config['current_state']['view']['pan_y']
 
 # === IDM PARAMETERS (Intelligent Driver Model) ===
 # All values based on real-world traffic studies (NGSIM, HighD, Treiber et al.)
@@ -121,22 +244,29 @@ class Segment:
     def draw_road(self, surface, color=(80,80,80)):
         if self.length == 0:
             return
-        pygame.draw.line(surface, color, self.start, self.end, ROAD_WIDTH)
+        p1 = world_to_screen(self.start)
+        p2 = world_to_screen(self.end)
+        # Scale road width with zoom
+        rw = max(1, int(ROAD_WIDTH * ZOOM))
+        pygame.draw.line(surface, color, p1, p2, rw)
 
     # === DRAW CARS ===
     def draw_cars(self, surface):
         if self.length <= 0:
             return
 
-        # === SCALE: pixels per meter ===
-        seg_pixels = math.hypot(self.end[0] - self.start[0], self.end[1] - self.start[1])
-        ppm = seg_pixels / self.length  # pixels per meter
+        # === SEGMENT LENGTH IN SCREEN PIXELS ===
+        s1 = world_to_screen(self.start)
+        s2 = world_to_screen(self.end)
+        seg_pixels = math.hypot(s2[0] - s1[0], s2[1] - s1[1])
+        # pixels per meter (based on world meters length)
+        ppm = (seg_pixels / self.length) if self.length > 0 else 1.0
 
-        # Car dimensions
+        # Car dimensions (in screen pixels)
         car_pixel_length = max(4, CAR_LENGTH * ppm)
-        car_pixel_width = 2.0 * ppm
-        half_len = car_pixel_length / 2
-        half_w = car_pixel_width / 2
+        car_pixel_width = max(2, 2.0 * ppm)
+        half_len = car_pixel_length / 2.0
+        half_w = car_pixel_width / 2.0
 
         color_map = {
             "green": (0, 255, 0),
@@ -145,17 +275,20 @@ class Segment:
         }
 
         for car in self.cars:
-            t = car.pos / self.length
+            t = car.pos / self.length if self.length > 0 else 0.0
+            # world position along segment (in world coords)
             x = self.start[0] + t * (self.end[0] - self.start[0])
             y = self.start[1] + t * (self.end[1] - self.start[1])
+            # transform to screen
+            sx, sy = world_to_screen((x, y))
 
-            # Direction
-            dx = self.end[0] - self.start[0]
-            dy = self.end[1] - self.start[1]
+            # Direction (angle) uses screen direction to remain visually correct
+            dx = s2[0] - s1[0]
+            dy = s2[1] - s1[1]
             angle = math.atan2(dy, dx)
             cos_a, sin_a = math.cos(angle), math.sin(angle)
 
-            # === CAR BODY ===
+            # CAR BODY corners in screen-space relative coords
             corners = [
                 (-half_len, -half_w),
                 ( half_len, -half_w),
@@ -164,20 +297,18 @@ class Segment:
             ]
             rotated = []
             for px, py in corners:
-                rx = px * cos_a - py * sin_a + x
-                ry = px * sin_a + py * cos_a + y
-                rotated.append((int(rx), int(ry)))
+                rx = px * cos_a - py * sin_a + sx
+                ry = px * sin_a + py * cos_a + sy
+                rotated.append((int(round(rx)), int(round(ry))))
 
             color = (180, 0, 255) if getattr(car, 'colliding', False) else color_map[car.risk]
             pygame.draw.polygon(surface, color, rotated)
-            # Optional: border
-            # pygame.draw.polygon(surface, (0, 0, 0), rotated, 2)
 
-            # === INSIDE draw_cars(), replace the headlight block ===
+            # HEADLIGHT / BEAM (scaled)
             if car.v > 2.0:
                 # Headlight origin (front center)
-                front_x = x + half_len * cos_a
-                front_y = y + half_len * sin_a
+                front_x = sx + half_len * cos_a
+                front_y = sy + half_len * sin_a
 
                 # Beam parameters
                 beam_length_m = 6.0 + car.v * 0.6  # 6–15m
@@ -258,22 +389,26 @@ class Junction:
         size = road_width * 1.3  # slightly larger than road
         half = size // 2
 
-        # 1. Square border (white, thick)
-        rect = pygame.Rect(cx - half, cy - half, size, size)
-        pygame.draw.rect(surface, (255, 255, 255), rect, 4)
+        # Transform rect center
+        top_left = world_to_screen((cx - half, cy - half))
+        rect_w = int(size * ZOOM)
+        rect_h = int(size * ZOOM)
+        rect = pygame.Rect(top_left[0], top_left[1], rect_w, rect_h)
+        pygame.draw.rect(surface, (255, 255, 255), rect, max(1, int(4 * ZOOM)))
 
-        # 2. Circle (gray)
-        radius = int(size * 0.4)
-        pygame.draw.circle(surface, (100, 100, 100), (cx, cy), radius)
+        # Circle center in screen coords
+        center = world_to_screen((cx, cy))
+        radius = int(size * 0.4 * ZOOM)
+        if radius > 0:
+            pygame.draw.circle(surface, (100, 100, 100), center, radius)
 
-        # 3. Cross (X) inside circle
-        line_len = radius * 0.8
-        pygame.draw.line(surface, (200, 200, 200),
-                        (cx - line_len, cy - line_len),
-                        (cx + line_len, cy + line_len), 3)
-        pygame.draw.line(surface, (200, 200, 200),
-                        (cx + line_len, cy - line_len),
-                        (cx - line_len, cy + line_len), 3)
+            line_len = radius * 0.8
+            pygame.draw.line(surface, (200, 200, 200),
+                            (center[0] - line_len, center[1] - line_len),
+                            (center[0] + line_len, center[1] + line_len), max(1, int(3 * ZOOM)))
+            pygame.draw.line(surface, (200, 200, 200),
+                            (center[0] + line_len, center[1] - line_len),
+                            (center[0] - line_len, center[1] + line_len), max(1, int(3 * ZOOM)))
 
 
 # === CREATE SEGMENTS USING POINTS ===
@@ -473,18 +608,59 @@ while True:
     for e in pygame.event.get():
         if e.type == pygame.QUIT:
             sys.exit()
-        if e.type == pygame.KEYDOWN and e.key == pygame.K_SPACE:
-            north = segments['northsouth']
-            if not north.cars or north.cars[-1].pos > 30:
-                car = Car()
-                north.add_car(car, 0)
+        
+        # === ZOOM ===
+        if e.type == pygame.MOUSEBUTTONDOWN:
+            if e.button == 4:  # scroll up (zoom in)
+                zoom_at(pygame.mouse.get_pos(), 1.1)
+            elif e.button == 5:  # scroll down (zoom out)
+                zoom_at(pygame.mouse.get_pos(), 0.9)
+        
+        # === PANNING ===
+        if e.type == pygame.MOUSEBUTTONDOWN and e.button == 3:  # right-click
+            is_panning = True
+            pan_last = pygame.mouse.get_pos()
+        if e.type == pygame.MOUSEBUTTONUP and e.button == 3:
+            is_panning = False
+        if e.type == pygame.MOUSEMOTION and is_panning:
+            mouse = pygame.mouse.get_pos()
+            dx = mouse[0] - pan_last[0]
+            dy = mouse[1] - pan_last[1]
+            PAN_X += dx
+            PAN_Y += dy
+            pan_last = mouse
+        
+        if e.type == pygame.KEYDOWN:
+            # === PLUS/MINUS ZOOM ===
+            if e.key == pygame.K_PLUS or e.key == pygame.K_EQUALS:
+                zoom_at(pygame.mouse.get_pos(), 1.1)
+            elif e.key == pygame.K_MINUS:
+                zoom_at(pygame.mouse.get_pos(), 0.9)
+            
+            # === SPAWN CAR ===
+            if e.key == pygame.K_SPACE:
+                north = segments['northsouth']
+                if not north.cars or north.cars[-1].pos > 30:
+                    car = Car()
+                    north.add_car(car, 0)
+            
+            # === SAVE CONFIG (Ctrl+S) ===
+            if e.key == pygame.K_s and (pygame.key.get_mods() & pygame.KMOD_CTRL):
+                update_config_current_state(config)
+                save_config(config)
+                print("Config saved to config.json")
+            
+            # === RESET TO DEFAULT (R key) ===
+            if e.key == pygame.K_r:
+                reset_to_default_state(config)
+                print("Reset to default state")
 
-    # if spawn_timer > 1/spawn_rate:
-    #     north = segments['northsouth']
-    #     if not north.cars or north.cars[-1].pos > 30:
-    #         car = Car()
-    #         north.add_car(car, 0)
-    #     spawn_timer = 0
+    if spawn_timer > 1/spawn_rate:
+        north = segments['northsouth']
+        if not north.cars or north.cars[-1].pos > 30:
+            car = Car()
+            north.add_car(car, 0)
+        spawn_timer = 0
 
     while accumulator >= STEP:
         for seg in segments.values():

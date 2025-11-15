@@ -1,0 +1,288 @@
+{
+  "default_state": {
+    "points": {
+      "north_start": [
+        350,
+        100
+      ],
+      "north_end": [
+        350,
+        300
+      ],
+      "split": [
+        350,
+        300
+      ],
+      "west_start": [
+        350,
+        300
+      ],
+      "west_end": [
+        100,
+        300
+      ],
+      "east_start": [
+        350,
+        300
+      ],
+      "east_end": [
+        600,
+        300
+      ]
+    },
+    "segments": [
+      {
+        "id": "northsouth",
+        "start": [
+          350,
+          100
+        ],
+        "end": [
+          350,
+          300
+        ],
+        "speed_limit": 13.9
+      },
+      {
+        "id": "west",
+        "start": [
+          350,
+          300
+        ],
+        "end": [
+          100,
+          300
+        ],
+        "speed_limit": 13.9
+      },
+      {
+        "id": "east",
+        "start": [
+          350,
+          300
+        ],
+        "end": [
+          600,
+          300
+        ],
+        "speed_limit": 13.9
+      },
+      {
+        "id": "eastnorth",
+        "start": [
+          600,
+          300
+        ],
+        "end": [
+          350,
+          100
+        ],
+        "speed_limit": 13.9
+      },
+      {
+        "id": "westnorth",
+        "start": [
+          100,
+          300
+        ],
+        "end": [
+          350,
+          100
+        ],
+        "speed_limit": 13.9
+      }
+    ],
+    "junctions": [
+      {
+        "id": "split",
+        "inputs": [
+          "northsouth"
+        ],
+        "outputs": [
+          "west",
+          "east"
+        ],
+        "mode": "round_robin"
+      },
+      {
+        "id": "westaround",
+        "inputs": [
+          "west"
+        ],
+        "outputs": [
+          "westnorth"
+        ],
+        "mode": "priority"
+      },
+      {
+        "id": "eastaround",
+        "inputs": [
+          "east"
+        ],
+        "outputs": [
+          "eastnorth"
+        ],
+        "mode": "priority"
+      },
+      {
+        "id": "merge",
+        "inputs": [
+          "eastnorth",
+          "westnorth"
+        ],
+        "outputs": [
+          "northsouth"
+        ],
+        "mode": "priority"
+      }
+    ],
+    "view": {
+      "zoom": 1.0,
+      "pan_x": 0.0,
+      "pan_y": 0.0
+    }
+  },
+  "current_state": {
+    "points": {
+      "north_start": [
+        350,
+        100
+      ],
+      "north_end": [
+        350,
+        300
+      ],
+      "split": [
+        350,
+        300
+      ],
+      "west_start": [
+        350,
+        300
+      ],
+      "west_end": [
+        100,
+        300
+      ],
+      "east_start": [
+        350,
+        300
+      ],
+      "east_end": [
+        600,
+        300
+      ]
+    },
+    "segments": [
+      {
+        "id": "northsouth",
+        "start": [
+          350,
+          100
+        ],
+        "end": [
+          350,
+          300
+        ],
+        "speed_limit": 13.9
+      },
+      {
+        "id": "west",
+        "start": [
+          350,
+          300
+        ],
+        "end": [
+          100,
+          300
+        ],
+        "speed_limit": 13.9
+      },
+      {
+        "id": "east",
+        "start": [
+          350,
+          300
+        ],
+        "end": [
+          600,
+          300
+        ],
+        "speed_limit": 13.9
+      },
+      {
+        "id": "eastnorth",
+        "start": [
+          600,
+          300
+        ],
+        "end": [
+          350,
+          100
+        ],
+        "speed_limit": 13.9
+      },
+      {
+        "id": "westnorth",
+        "start": [
+          100,
+          300
+        ],
+        "end": [
+          350,
+          100
+        ],
+        "speed_limit": 13.9
+      }
+    ],
+    "junctions": [
+      {
+        "id": "split",
+        "inputs": [
+          "northsouth"
+        ],
+        "outputs": [
+          "west",
+          "east"
+        ],
+        "mode": "round_robin"
+      },
+      {
+        "id": "westaround",
+        "inputs": [
+          "west"
+        ],
+        "outputs": [
+          "westnorth"
+        ],
+        "mode": "priority"
+      },
+      {
+        "id": "eastaround",
+        "inputs": [
+          "east"
+        ],
+        "outputs": [
+          "eastnorth"
+        ],
+        "mode": "priority"
+      },
+      {
+        "id": "merge",
+        "inputs": [
+          "eastnorth",
+          "westnorth"
+        ],
+        "outputs": [
+          "northsouth"
+        ],
+        "mode": "priority"
+      }
+    ],
+    "view": {
+      "zoom": 2.6043266205000006,
+      "pan_x": -552.1852506401942,
+      "pan_y": -175.26426429294554
+    }
+  }
+}
