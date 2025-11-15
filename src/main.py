@@ -14,7 +14,9 @@ if config is None:
 W, H = 700, 700
 screen = pygame.display.set_mode((W, H))
 clock = pygame.time.Clock()
-font = pygame.font.SysFont(None, 28)
+font = pygame.font.SysFont(None, 20)
+label_font_size = 16
+label_font = pygame.font.SysFont(None, label_font_size)
 
 # Give window a better title
 pygame.display.set_caption('Traffic Simulation — traffic_sim')
@@ -197,6 +199,8 @@ transfer_at_junction = sim.transfer_at_junction
 accumulator = 0
 sim_tick = 0
 sim_time = 0.0
+show_help = config['current_state']['view'].get('show_help', False)
+show_labels = config['current_state']['view'].get('show_labels', True)
 while True:
     dt = clock.tick(60) / 1000.0
     accumulator += dt
@@ -232,10 +236,18 @@ while True:
             if e.key == pygame.K_f and (pygame.key.get_mods() & pygame.KMOD_CTRL):
                 toggle_fullscreen()
                 continue
+            # === HELP TOGGLE (H key) ===
+            if e.key == pygame.K_h:
+                show_help = not show_help
+                continue
+            # === LABELS TOGGLE (L key) ===
+            if e.key == pygame.K_l:
+                show_labels = not show_labels
+                continue
             # === PLUS/MINUS ZOOM ===
-            if e.key == pygame.K_PLUS or e.key == pygame.K_EQUALS:
+            if e.key == pygame.K_PLUS or e.key == pygame.K_EQUALS or e.key == pygame.K_KP_PLUS:
                 zoom_at(pygame.mouse.get_pos(), 1.1)
-            elif e.key == pygame.K_MINUS:
+            elif e.key == pygame.K_MINUS or e.key == pygame.K_KP_MINUS:
                 zoom_at(pygame.mouse.get_pos(), 0.9)
             
             # === SPAWN CAR ===
@@ -253,6 +265,8 @@ while True:
                 config['current_state']['view']['zoom'] = ZOOM
                 config['current_state']['view']['pan_x'] = PAN_X
                 config['current_state']['view']['pan_y'] = PAN_Y
+                config['current_state']['view']['show_help'] = show_help
+                config['current_state']['view']['show_labels'] = show_labels
                 cfg.save_config(config)
                 print("Config saved to config.json")
 
@@ -303,17 +317,45 @@ while True:
         seg.draw_cars(screen, world_to_screen, ZOOM, W, H, car_length_const=CAR_LENGTH)
 
     # Draw segment labels at their midpoints
-    for seg in sim.segments.values():
-        seg.draw_label(screen, world_to_screen, font)
+    if show_labels:
+        for seg in sim.segments.values():
+            seg.draw_label(screen, world_to_screen, label_font)
+
+    # Help screen
+    if show_help:
+        help_lines = [
+            "=== KEYBOARD SHORTCUTS ===",
+            "H: Toggle help",
+            "L: Toggle labels",
+            "SPACE: Spawn car",
+            "Ctrl+F: Toggle fullscreen",
+            "Ctrl+S: Save config",
+            "R: Reset to default",
+            "+/-: Zoom in/out",
+            "Mouse Wheel: Zoom",
+            "Right-Click + Drag: Pan",
+        ]
+        y_offset = 10
+        for line in help_lines:
+            help_txt = font.render(line, True, (200, 200, 100))
+            screen.blit(help_txt, (10, y_offset))
+            y_offset += 20
+        y_offset += 10
+    else:
+        y_offset = 10
 
     # Stats - always show tick/time regardless of car count
     all_cars = [c for seg in sim.segments.values() for c in seg.cars]
+    sim_time_txt = font.render(f'Time: {sim_time:.2f}s', True, (255,255,255))
+    tick_txt = font.render(f'Ticks: {sim_tick}', True, (255,255,255))
+
+    screen.blit(sim_time_txt, (10, y_offset))
+    screen.blit(tick_txt, (10, y_offset + 15))
+    
     if all_cars:
         avg_v = sum(c.v for c in all_cars) / len(all_cars)
         red = sum(1 for c in all_cars if c.risk == "red")
-        txt = font.render(f'Avg: {avg_v:.1f} m/s | Cars: {len(all_cars)} | Red: {red} | Ticks: {sim_tick} | Time: {sim_time:.2f}s', True, (255,255,255))
-    else:
-        txt = font.render(f'Ticks: {sim_tick} | Time: {sim_time:.2f}s', True, (255,255,255))
-    screen.blit(txt, (10, 10))
+        stats_txt = font.render(f'Avg: {avg_v:.1f} m/s | Cars: {len(all_cars)} | Red: {red}', True, (255,255,255))
+        screen.blit(stats_txt, (10, y_offset + 30))
 
     pygame.display.flip()
