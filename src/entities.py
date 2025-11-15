@@ -16,6 +16,7 @@ class Car:
         self.s0 = None
         self.risk = "green"
         self.colliding = False
+        self.car_meta = {}  # Store calculated info: s, dv, a, s_star, etc.
 
 
 class Segment:

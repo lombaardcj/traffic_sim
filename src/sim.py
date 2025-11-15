@@ -84,14 +84,29 @@ def update_cars(seg, STEP_local=0.05):
 
         if s == float('inf'):
             car.risk = "green"
+            risk_reason = "No leader ahead"
         else:
             s_star = car.s0 + max(0, car.v * car.T + (car.v * dv) / (2 * math.sqrt(car.a_max * car.b_max)))
             if s <= s_star:
                 car.risk = "red"
+                risk_reason = f"Gap {round(s, 2)}m <= Desired {round(s_star, 2)}m (too close)"
             elif s <= s_star + MARGIN:
                 car.risk = "yellow"
+                risk_reason = f"Gap {round(s, 2)}m in warning zone ({round(s_star, 2)}m to {round(s_star + MARGIN, 2)}m)"
             else:
                 car.risk = "green"
+                risk_reason = f"Gap {round(s, 2)}m > Safe threshold"
+        
+        # Store metadata for display
+        car.car_meta = {
+            's': s if s != float('inf') else 'inf',
+            'dv': round(dv, 2),
+            'a': round(a, 2),
+            's_star': round(s_star if s != float('inf') else 0, 2),
+            'v_free': round(v_free, 2),
+            'segment_id': seg.id,
+            'risk_reason': risk_reason,
+        }
 
 
 def transfer_at_junction(junction):

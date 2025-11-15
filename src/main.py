@@ -201,10 +201,13 @@ sim_tick = 0
 sim_time = 0.0
 show_help = config['current_state']['view'].get('show_help', False)
 show_labels = config['current_state']['view'].get('show_labels', True)
+is_paused = False
+selected_car = None
 while True:
     dt = clock.tick(60) / 1000.0
-    accumulator += dt
-    spawn_timer += dt
+    if not is_paused:
+        accumulator += dt
+        spawn_timer += dt
 
     for e in pygame.event.get():
         if e.type == pygame.QUIT:
@@ -212,7 +215,22 @@ while True:
         
         # === ZOOM ===
         if e.type == pygame.MOUSEBUTTONDOWN:
-            if e.button == 4:  # scroll up (zoom in)
+            if e.button == 1:  # left-click: select car
+                mouse_pos = pygame.mouse.get_pos()
+                selected_car = None
+                # Check which car was clicked (iterate through segments and cars)
+                for seg in sim.segments.values():
+                    for car in seg.cars:
+                        car_world = (car.pos * seg.dir[0] + seg.start[0], 
+                                    car.pos * seg.dir[1] + seg.start[1])
+                        car_screen = world_to_screen(car_world)
+                        # Simple bounding box: 20 pixel radius
+                        if abs(car_screen[0] - mouse_pos[0]) < 20 and abs(car_screen[1] - mouse_pos[1]) < 20:
+                            selected_car = car
+                            break
+                    if selected_car:
+                        break
+            elif e.button == 4:  # scroll up (zoom in)
                 zoom_at(pygame.mouse.get_pos(), 1.1)
             elif e.button == 5:  # scroll down (zoom out)
                 zoom_at(pygame.mouse.get_pos(), 0.9)
@@ -243,6 +261,10 @@ while True:
             # === LABELS TOGGLE (L key) ===
             if e.key == pygame.K_l:
                 show_labels = not show_labels
+                continue
+            # === PAUSE TOGGLE (P key) ===
+            if e.key == pygame.K_p:
+                is_paused = not is_paused
                 continue
             # === PLUS/MINUS ZOOM ===
             if e.key == pygame.K_PLUS or e.key == pygame.K_EQUALS or e.key == pygame.K_KP_PLUS:
@@ -287,19 +309,20 @@ while True:
             sim.spawn_into('northsouth')
         spawn_timer = 0
 
-    while accumulator >= STEP:
-        for seg in sim.segments.values():
-            sim.update_cars(seg, STEP)
+    if not is_paused:
+        while accumulator >= STEP:
+            for seg in sim.segments.values():
+                sim.update_cars(seg, STEP)
 
-        # === TRANSFER VIA JUNCTIONS ===
-        for j in sim.junctions:
-            sim.transfer_at_junction(j)
+            # === TRANSFER VIA JUNCTIONS ===
+            for j in sim.junctions:
+                sim.transfer_at_junction(j)
 
-        # Advance simulation time / ticks
-        sim_tick += 1
-        sim_time += STEP
+            # Advance simulation time / ticks
+            sim_tick += 1
+            sim_time += STEP
 
-        accumulator -= STEP
+            accumulator -= STEP
 
     # === RENDER ===
     screen.fill((30, 30, 30))
@@ -327,6 +350,7 @@ while True:
             "=== KEYBOARD SHORTCUTS ===",
             "H: Toggle help",
             "L: Toggle labels",
+            "P: Pause/Resume",
             "SPACE: Spawn car",
             "Ctrl+F: Toggle fullscreen",
             "Ctrl+S: Save config",
@@ -334,6 +358,7 @@ while True:
             "+/-: Zoom in/out",
             "Mouse Wheel: Zoom",
             "Right-Click + Drag: Pan",
+            "Left-Click: Select car",
         ]
         y_offset = 10
         for line in help_lines:
@@ -357,5 +382,45 @@ while True:
         red = sum(1 for c in all_cars if c.risk == "red")
         stats_txt = font.render(f'Avg: {avg_v:.1f} m/s | Cars: {len(all_cars)} | Red: {red}', True, (255,255,255))
         screen.blit(stats_txt, (10, y_offset + 30))
+
+    # Display pause status
+    if is_paused:
+        pause_txt = font.render("*** PAUSED ***", True, (255, 100, 100))
+        pause_rect = pause_txt.get_rect(topright=(W - 10, 10))
+        screen.blit(pause_txt, pause_rect)
+
+    # Display selected car info
+    if selected_car:
+        # Position the selected-car info panel at left (inline with stats) and 1/2 down
+        x_base = 10
+        car_info_y = int(H * 1.0 / 2.0)
+        car_title = font.render(f"Selected Car: {selected_car.segment.id}", True, (100, 200, 255))
+        screen.blit(car_title, (x_base, car_info_y))
+        car_info_y += 22
+
+        # Display car attributes in alphanumeric order
+        car_attrs = {
+            'Position': round(selected_car.pos, 2),
+            'Velocity': round(selected_car.v, 2),
+            'Risk': selected_car.risk,
+            'Colliding': selected_car.colliding,
+            'Length': selected_car.length,
+            'a_max': selected_car.a_max,
+            'b_max': selected_car.b_max,
+            's0': selected_car.s0,
+            'T': selected_car.T,
+            'v0': selected_car.v0,
+        }
+
+        # Add car_meta info
+        if selected_car.car_meta:
+            for key in sorted(selected_car.car_meta.keys()):
+                car_attrs[key] = selected_car.car_meta[key]
+
+        # Sort and display (left-aligned at x_base)
+        for attr_name in sorted(car_attrs.keys()):
+            attr_txt = font.render(f"{attr_name}: {car_attrs[attr_name]}", True, (200, 200, 200))
+            screen.blit(attr_txt, (x_base, car_info_y))
+            car_info_y += 18
 
     pygame.display.flip()
