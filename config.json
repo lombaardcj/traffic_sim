@@ -288,5 +288,16 @@
       "show_help": false,
       "show_labels": true
     }
+  },
+  "build": {
+    "build_number": 1,
+    "build_sha": "4a52d47dba13effaa164eff06789b1a657059932",
+    "history": [
+      {
+        "number": 1,
+        "sha": "4a52d47dba13effaa164eff06789b1a657059932",
+        "date": "2025-11-15T18:43:45.500678Z"
+      }
+    ]
   }
 }

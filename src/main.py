@@ -1,4 +1,4 @@
-import pygame, random, sys, math
+import pygame, random, sys, math, os, hashlib, datetime
 import config as cfg
 pygame.init()
 
@@ -9,6 +9,59 @@ config = cfg.config
 if config is None:
     print("Failed to load config. Please ensure config.json exists.")
     sys.exit(1)
+
+# --- Build stamping: compute SHA of all .py files and record builds
+def compute_py_sha(root_dir):
+    h = hashlib.sha1()
+    paths = []
+    for dirpath, dirnames, filenames in os.walk(root_dir):
+        # skip some directories
+        dirnames[:] = [d for d in dirnames if d not in ('.git', '__pycache__', '.venv', 'venv')]
+        for fn in filenames:
+            if fn.endswith('.py'):
+                paths.append(os.path.join(dirpath, fn))
+    paths.sort()
+    for p in paths:
+        rel = os.path.relpath(p, root_dir).replace('\\', '/')
+        h.update(rel.encode('utf-8'))
+        try:
+            with open(p, 'rb') as f:
+                while True:
+                    chunk = f.read(8192)
+                    if not chunk:
+                        break
+                    h.update(chunk)
+        except Exception:
+            # ignore read errors
+            continue
+    return h.hexdigest()
+
+# Determine project root (one level above src)
+proj_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+try:
+    current_sha = compute_py_sha(proj_root)
+except Exception:
+    current_sha = ''
+
+# Ensure config has build section
+cfg_build = config.setdefault('build', {})
+stored_sha = cfg_build.get('build_sha', '')
+stored_number = int(cfg_build.get('build_number', 0))
+if current_sha and current_sha != stored_sha:
+    # new build
+    new_number = stored_number + 1
+    now = datetime.datetime.utcnow().isoformat() + 'Z'
+    entry = {'number': new_number, 'sha': current_sha, 'date': now}
+    history = cfg_build.setdefault('history', [])
+    history.append(entry)
+    cfg_build['build_number'] = new_number
+    cfg_build['build_sha'] = current_sha
+    # persist immediately
+    try:
+        cfg.save_config(config)
+        print(f'Build updated: #{new_number} sha={current_sha}')
+    except Exception:
+        print('Warning: failed to save updated build info to config')
 
 # === SCREEN ===
 W, H = 700, 700
