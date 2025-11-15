@@ -53,6 +53,18 @@ class Segment:
         rw = max(1, int(road_width * zoom))
         pygame.draw.line(surface, road_color, p1, p2, rw)
 
+    def draw_label(self, surface, world_to_screen, font, label_color=(200, 200, 200)):
+        """Draw segment label at midpoint between start and end."""
+        if self.length == 0:
+            return
+        mid_x = (self.start[0] + self.end[0]) / 2.0
+        mid_y = (self.start[1] + self.end[1]) / 2.0
+        screen_pos = world_to_screen((mid_x, mid_y))
+        txt = font.render(self.id, True, label_color)
+        # Center the text on the midpoint
+        txt_rect = txt.get_rect(center=screen_pos)
+        surface.blit(txt, txt_rect)
+
     def draw_cars(self, surface, world_to_screen, zoom, W, H, car_length_const=4.5):
         if self.length <= 0:
             return
@@ -135,7 +147,8 @@ class Junction:
         self.mode = mode
         self.counter = 0
 
-    def draw_junction(self, surface, world_to_screen, zoom, road_width=40):
+    def draw_junction(self, surface, world_to_screen, zoom, road_width=40, font=None):
+        """Draw junction box and label above/right of the junction."""
         end_points = []
         for inp in (self.inputs if isinstance(self.inputs, list) else [self.inputs]):
             end_points.append((inp.end[0], inp.end[1]))
@@ -162,3 +175,10 @@ class Junction:
             pygame.draw.line(surface, (200, 200, 200),
                             (center[0] + line_len, center[1] - line_len),
                             (center[0] - line_len, center[1] + line_len), max(1, int(3 * zoom)))
+
+        # Draw label above and to the right of junction box
+        if font is not None:
+            label_x = top_left[0] + rect_w + 5
+            label_y = top_left[1] - 20
+            txt = font.render(self.id, True, (200, 200, 200))
+            surface.blit(txt, (label_x, label_y))

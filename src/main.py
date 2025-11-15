@@ -16,6 +16,13 @@ screen = pygame.display.set_mode((W, H))
 clock = pygame.time.Clock()
 font = pygame.font.SysFont(None, 28)
 
+# Give window a better title
+pygame.display.set_caption('Traffic Simulation — traffic_sim')
+
+# Fullscreen toggle state (Ctrl+F will toggle fullscreen)
+is_fullscreen = False
+stored_window_size = (W, H)
+
 # === VIEW / ZOOM / PAN ===
 ZOOM = 1.0           # global zoom (1.0 = 100%)
 MIN_ZOOM = 0.1
@@ -52,6 +59,29 @@ def zoom_at(point_screen, factor):
     # compute new pan so that the same world point maps to same screen point
     PAN_X = point_screen[0] - world[0] * ZOOM
     PAN_Y = point_screen[1] - world[1] * ZOOM
+
+def toggle_fullscreen():
+    """Toggle fullscreen and compensate pan for screen size change."""
+    global W, H, is_fullscreen, screen, PAN_X, PAN_Y, stored_window_size
+    old_w, old_h = W, H
+    is_fullscreen = not is_fullscreen
+    if is_fullscreen:
+        stored_window_size = (W, H)
+        screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+        info = pygame.display.Info()
+        W, H = info.current_w, info.current_h
+    else:
+        W, H = stored_window_size
+        screen = pygame.display.set_mode((W, H), pygame.RESIZABLE)
+    
+    # Compensate for size change: center the view by adjusting pan
+    # When screen grows, we need to shift pan to keep center on same world point
+    width_delta = (W - old_w) / 2.0
+    height_delta = (H - old_h) / 2.0
+    PAN_X += width_delta
+    PAN_Y += height_delta
+
+
 
 # === LOAD INITIAL VIEW STATE FROM CONFIG ===
 if config:
@@ -165,6 +195,8 @@ transfer_at_junction = sim.transfer_at_junction
 
 # === MAIN LOOP ===
 accumulator = 0
+sim_tick = 0
+sim_time = 0.0
 while True:
     dt = clock.tick(60) / 1000.0
     accumulator += dt
@@ -196,6 +228,10 @@ while True:
             pan_last = mouse
         
         if e.type == pygame.KEYDOWN:
+            # === FULLSCREEN TOGGLE (Ctrl+F) ===
+            if e.key == pygame.K_f and (pygame.key.get_mods() & pygame.KMOD_CTRL):
+                toggle_fullscreen()
+                continue
             # === PLUS/MINUS ZOOM ===
             if e.key == pygame.K_PLUS or e.key == pygame.K_EQUALS:
                 zoom_at(pygame.mouse.get_pos(), 1.1)
@@ -244,7 +280,11 @@ while True:
         # === TRANSFER VIA JUNCTIONS ===
         for j in sim.junctions:
             sim.transfer_at_junction(j)
-        
+
+        # Advance simulation time / ticks
+        sim_tick += 1
+        sim_time += STEP
+
         accumulator -= STEP
 
     # === RENDER ===
@@ -256,28 +296,24 @@ while True:
 
     # Draw all junctions
     for junc in sim.junctions:
-        junc.draw_junction(screen, world_to_screen, ZOOM, road_width=ROAD_WIDTH)
+        junc.draw_junction(screen, world_to_screen, ZOOM, road_width=ROAD_WIDTH, font=font)
 
     # Draw all cars
     for seg in sim.segments.values():
         seg.draw_cars(screen, world_to_screen, ZOOM, W, H, car_length_const=CAR_LENGTH)
 
-    # Labels
-    label_pos = {
-        'north':  POINTS['north_start'],
-        'west':   POINTS['west_end'],
-        'east':   POINTS['east_end'],
-    }
-    for sid, (x, y) in label_pos.items():
-        txt = font.render(sid, True, (200,200,200))
-        screen.blit(txt, (x, y))
+    # Draw segment labels at their midpoints
+    for seg in sim.segments.values():
+        seg.draw_label(screen, world_to_screen, font)
 
-    # Stats
+    # Stats - always show tick/time regardless of car count
     all_cars = [c for seg in sim.segments.values() for c in seg.cars]
     if all_cars:
         avg_v = sum(c.v for c in all_cars) / len(all_cars)
         red = sum(1 for c in all_cars if c.risk == "red")
-        txt = font.render(f'Avg: {avg_v:.1f} m/s | Cars: {len(all_cars)} | Red: {red}', True, (255,255,255))
-        screen.blit(txt, (10, 10))
+        txt = font.render(f'Avg: {avg_v:.1f} m/s | Cars: {len(all_cars)} | Red: {red} | Ticks: {sim_tick} | Time: {sim_time:.2f}s', True, (255,255,255))
+    else:
+        txt = font.render(f'Ticks: {sim_tick} | Time: {sim_time:.2f}s', True, (255,255,255))
+    screen.blit(txt, (10, 10))
 
     pygame.display.flip()
