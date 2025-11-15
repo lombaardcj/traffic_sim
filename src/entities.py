@@ -16,6 +16,7 @@ class Car:
         self.s0 = None
         self.risk = "green"
         self.colliding = False
+        self.accel_state = "coasting"  # NEW: accelerating / braking / coasting        
         self.car_meta = {}  # Store calculated info: s, dv, a, s_star, etc.
 
 
@@ -66,7 +67,7 @@ class Segment:
         txt_rect = txt.get_rect(center=screen_pos)
         surface.blit(txt, txt_rect)
 
-    def draw_cars(self, surface, world_to_screen, zoom, W, H, car_length_const=4.5):
+    def draw_cars(self, surface, world_to_screen, font, zoom, W, H, car_length_const=4.5 ,selected_car=None):
         if self.length <= 0:
             return
         s1 = world_to_screen(self.start)
@@ -79,10 +80,16 @@ class Segment:
         half_len = car_pixel_length / 2.0
         half_w = car_pixel_width / 2.0
 
-        color_map = {
-            "green": (0, 255, 0),
+        # === STATE COLORS ===
+        state_colors = {
+            "accelerating": (50, 150, 255),   # Bright Blue
+            "braking":      (255, 150, 50),   # Orange
+            "coasting":     (180, 180, 180),  # Light Gray
+        }
+        risk_colors = {
+            "green":  (0, 255, 0),
             "yellow": (255, 255, 0),
-            "red": (255, 0, 0),
+            "red":    (255, 0, 0),
         }
 
         dx = s2[0] - s1[0]
@@ -96,21 +103,142 @@ class Segment:
             y = self.start[1] + t * (self.end[1] - self.start[1])
             sx, sy = world_to_screen((x, y))
 
-            # CAR BODY corners
-            corners = [
-                (-half_len, -half_w),
-                ( half_len, -half_w),
-                ( half_len,  half_w),
-                (-half_len,  half_w),
+            # === Define 4 corners: rear-left, rear-right, front-right, front-left ===
+            corners_local = [
+                (-half_len, -half_w),  # 0: rear-left
+                (-half_len,  half_w),  # 1: rear-right
+                ( half_len,  half_w),  # 2: front-right
+                ( half_len, -half_w),  # 3: front-left
             ]
             rotated = []
-            for px, py in corners:
+            for px, py in corners_local:
                 rx = px * cos_a - py * sin_a + sx
                 ry = px * sin_a + py * cos_a + sy
                 rotated.append((int(round(rx)), int(round(ry))))
 
-            color = (180, 0, 255) if getattr(car, 'colliding', False) else color_map.get(car.risk, (0,255,0))
-            pygame.draw.polygon(surface, color, rotated)
+            # Is this the selected car?
+            if selected_car is not None and car == selected_car:
+                # draw circle around car
+                center_x = int(round(sx))
+                center_y = int(round(sy))
+                radius = int(round(max(half_len, half_w) + 6))
+                pygame.draw.circle(surface, (255, 0, 255), (center_x, center_y), radius, 3)
+
+                # Print safety distance around car (for debugging)
+                # Use car_meta to get s_star if available
+                if hasattr(car, 'car_meta') and 's_star' in car.car_meta:
+                    # print circle with radius s_star * ppm
+                    s_star = car.car_meta['s_star']
+                    radius = int(round(s_star * ppm))
+                    center_x = int(round(sx))
+                    center_y = int(round(sy))
+                    pygame.draw.circle(surface, (0, 200, 200), (center_x, center_y), radius, 1)
+                
+                # Do the same car_meta s
+                if hasattr(car, 'car_meta') and 's' in car.car_meta:
+                    # print circle with radius s * ppm
+                    s_meta = car.car_meta['s']
+                    radius = int(round(s_meta * ppm))
+                    center_x = int(round(sx))
+                    center_y = int(round(sy))
+                    pygame.draw.circle(surface, (200, 200, 0), (center_x, center_y), radius, 1)
+
+            
+
+            # === Compute center points (midline) ===
+            # rear_center  = ((rotated[0][0] + rotated[1][0]) // 2, (rotated[0][1] + rotated[1][1]) // 2)
+            # rear_center  = ((rotated[0][0] + rotated[1][0]) // 2, (rotated[0][1] + rotated[1][1]) // 2)
+
+            # Print a yellow dot at center of rear axle
+            # pygame.draw.circle(surface, (255, 255, 0), rear_center, 2)
+
+            # front_center = ((rotated[2][0] + rotated[3][0]) // 2, (rotated[2][1] + rotated[3][1]) // 2)
+            # Print a red dot at center of front axle
+            # pygame.draw.circle(surface, (255, 0, 0), front_center, 2)
+
+            # === Compute center points (midline) – now in WIDTH direction ===
+            # rear_center  = average of rear-left and rear-right (cross-track midline)
+            # right-side midpoint (between rear-right and front-right)
+            rear_center  = (
+                (rotated[1][0] + rotated[2][0]) // 2,
+                (rotated[1][1] + rotated[2][1]) // 2
+            )
+
+            # left-side midpoint (between rear-left and front-left)
+            front_center = (
+                (rotated[0][0] + rotated[3][0]) // 2,
+                (rotated[0][1] + rotated[3][1]) // 2
+            )
+            # pygame.draw.circle(surface, (255, 255, 0), rear_center, 10)
+            # pygame.draw.circle(surface, (255, 0, 0), front_center, 10)
+
+            # # === REAR HALF (risk) — triangle: rear-left → rear-right → rear_center → close
+            # rear_half = [
+            #     rotated[0],           # rear-left R1
+            #     rear_center,           # rear-right R2
+            #     front_center,          # rear axle center R3
+            #     rotated[3],           # rear-left R4
+            # ]
+
+            # # === FRONT HALF (accel state) — triangle: front_center → front-right → front-left → close
+            # front_half = [
+            #     rear_center,          f1
+            #     rotated[1],           f2
+            #     rotated[2],           f3
+            #     front_center,         f4
+            # ]
+
+            # === REAR HALF (risk) — triangle: rear-left → rear-right → rear_center → close
+            rear_half = [
+                rotated[0],           # rear-left R1
+                rotated[1],
+                rear_center,          # rear axle center R3
+                front_center,           # rear-left R4
+            ]
+
+            # === FRONT HALF (accel state) — triangle: front_center → front-right → front-left → close
+            front_half = [
+                front_center,
+                rear_center,         
+                rotated[2],           
+                rotated[3],           
+            ]
+
+
+            # === DRAW ===
+            if getattr(car, 'colliding', False):
+                pygame.draw.polygon(surface, (180, 0, 255), rotated)
+            else:
+                pygame.draw.polygon(surface, risk_colors[car.risk], rear_half)
+                pygame.draw.polygon(surface, state_colors[car.accel_state], front_half)
+
+            # Border
+            pygame.draw.polygon(surface, (0, 0, 0), rotated, 1)
+
+            # # === DEBUG DOTS ===
+            # for cx, cy in rotated:
+                # pygame.draw.circle(surface, (255, 0, 0), (cx, cy), 5)  # yellow corners
+
+                # # Write font index near corner
+                # if font is not None:
+                #     idx_txt = font.render(str(rotated.index((cx, cy))), True, (255, 255, 255))
+                #     surface.blit(idx_txt, (cx + 2, cy - 10))
+
+            # for cx, cy in rear_half:
+                # pygame.draw.circle(surface, (255, 0, 0), (cx, cy), 6)    # red rear
+
+                # Write font index near rear half point
+                # if font is not None:
+                #     idx_txt = font.render("R"+str(rear_half.index((cx, cy))+1), True, (255, 255, 255))
+                #     surface.blit(idx_txt, (cx + 2, cy - 10))
+
+            # for cx, cy in front_half:
+                # pygame.draw.circle(surface, (0, 0, 255), (cx, cy), 4)   # blue front
+
+            #     # Write font index near front half point
+                # if font is not None:
+                    # idx_txt = font.render("F"+str(front_half.index((cx, cy))+1), True, (0, 0, 255))
+                    # surface.blit(idx_txt, (cx + 2, cy - 10))
 
             # HEADLIGHT / BEAM (scaled)
             if car.v > 2.0:

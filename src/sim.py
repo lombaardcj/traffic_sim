@@ -67,13 +67,24 @@ def update_cars(seg, STEP_local=0.05):
     if not seg.cars:
         return
     seg.cars.sort(key=lambda c: c.pos, reverse=True)
+
     for i, car in enumerate(seg.cars):
         v_free = min(car.v0, seg.speed_limit)
         s, dv = get_leader(seg, i)
         a = idm_acceleration(car, s, dv, v_free)
-        car.v = max(0, car.v + a * STEP_local)
-        car.pos += car.v * STEP_local
+        car.a = a  # store for display
+        car.v = max(0, car.v + a * STEP)
+        car.pos += car.v * STEP
 
+        # === ACCELERATION STATE ===
+        if a > 0.5 * car.a_max:
+            car.accel_state = "accelerating"
+        elif a < -0.5 * car.b_max:
+            car.accel_state = "braking"
+        else:
+            car.accel_state = "coasting"
+
+        # === COLLISION DETECTION ===
         car.colliding = False
         if i > 0:
             leader = seg.cars[i-1]
@@ -82,6 +93,7 @@ def update_cars(seg, STEP_local=0.05):
                 car.colliding = True
                 leader.colliding = True
 
+        # === RISK (unchanged) ===
         if s == float('inf'):
             car.risk = "green"
             risk_reason = "No leader ahead"

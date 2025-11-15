@@ -81,7 +81,7 @@ stored_window_size = (W, H)
 # === VIEW / ZOOM / PAN ===
 ZOOM = 1.0           # global zoom (1.0 = 100%)
 MIN_ZOOM = 0.1
-MAX_ZOOM = 7.5
+MAX_ZOOM = 200.0
 PAN_X, PAN_Y = 0.0, 0.0   # translation in screen pixels
 is_panning = False
 pan_last = (0, 0)
@@ -390,7 +390,7 @@ while True:
 
     # Draw all cars
     for seg in sim.segments.values():
-        seg.draw_cars(screen, world_to_screen, ZOOM, W, H, car_length_const=CAR_LENGTH)
+        seg.draw_cars(screen, world_to_screen, label_font, ZOOM, W, H, car_length_const=CAR_LENGTH, selected_car=selected_car)
 
     # Draw segment labels at their midpoints
     if show_labels:
@@ -400,6 +400,12 @@ while True:
     # Help screen
     if show_help:
         help_lines = [
+            "About traffic_sim:",
+            "A simple traffic simulation using the Intelligent Driver Model (IDM).",
+            "Simulates cars on roads with junctions, visualizing traffic flow and congestion.",
+            "",
+            "Build number: " + str(config['build'].get('build_number', 0)),
+            "",
             "=== KEYBOARD SHORTCUTS ===",
             "H: Toggle help",
             "L: Toggle labels",
@@ -421,6 +427,11 @@ while True:
         y_offset += 10
     else:
         y_offset = 10
+
+    # FPS
+    fps = clock.get_fps()
+    fps_txt = font.render(f'FPS: {fps:.1f}', True, (255, 255, 255))
+    screen.blit(fps_txt, (W - 100, 10))
 
     # Stats - always show tick/time regardless of car count
     all_cars = [c for seg in sim.segments.values() for c in seg.cars]
